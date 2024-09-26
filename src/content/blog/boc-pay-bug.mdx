@@ -350,7 +350,7 @@ localStorage.setItem = function (key: string, value: string) {
 1. A页面最后一次调用localStorage.setItem时，传入的数据符合预期，验证了写入过程正常。
 2. B页面第一次调用localStorage.getItem时，读取到的数据不符合预期，未包含state字段。
 
-   <img src="/26.png" style="zoom:33%;" />
+   <img src="/28.png" style="zoom:33%;" />
 
 <br/>
 
@@ -385,7 +385,7 @@ localStorage.setItem = function (key: string, value: string) {
 
 这轮反馈验证了我们的假设:B页面读取的并非A页面最后一次写入的数据。这个发现揭示了一个重要的因果关系:localStorage的读写存在某种延迟或不一致性。这促使我们进一步探究这种不一致性的具体表现和原因，进入下一轮迭代。
 
-<img src="/23.png" style="zoom:33%;" />
+<img src="/27.png" style="zoom:33%;" />
 
 <br/>
 
@@ -415,7 +415,7 @@ localStorage 是同步的 API，不应该出现数据同步存在延迟的情况
 
 反馈进一步确认了localStorage在不同页面间存在严重的数据不一致性。这个发现引导我们思考:是否存在多个独立的localStorage实例？或者localStorage的同步机制是否受到了某些因素的影响？
 
-<img src="/24.png" style="zoom:33%;" />
+<img src="/29.png" style="zoom:33%;" />
 
 ### 迭代十
 
@@ -456,7 +456,7 @@ localStorage 是同步的 API，不应该出现数据同步存在延迟的情况
 
 这个发现不仅解释了之前观察到的所有现象，还为我们指明了问题的根本原因:iOS系统对非栈顶webView的特殊处理机制。这个结论为我们提供了明确的解决方向，即需要考虑更换持久化存储方案或优化页面跳转逻辑。
 
-<img src="/25.png" style="zoom:33%;" />
+<img src="/30.png" style="zoom:33%;" />
 
 ### 最终原因
 
