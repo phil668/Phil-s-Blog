@@ -1,0 +1,450 @@
+---
+title: "BocPay 白屏 Bug 复盘"
+description: "这是一篇迟到了很久的问题排查复盘，想在这里复盘一次 App 的白屏问题。这次 Bug 的排查在历经了 2 个多月和整组人的努力之下，终于得到了解决，通过这次白屏问题，自己对 Bug 的排查方式，Pinia 和三方插件，webview 缓存机制等有了更深刻的认识"
+pubDate: "Sept 26 2024"
+heroImage: "/pexels-trace-hudson.jpg"
+---
+
+本文是一次 App 白屏问题的深度复盘，这次的白屏问题由于不能复现，难定位等因素，在历经了 2 个多月和整组人的努力之下才解决，通过这次白屏问题，自己对 Bug 的排查方式，Pinia 和三方插件，webview 缓存机制等有了更深刻的认识
+
+## 问题概括
+
+1. 前置背景：App 为 Hybrid 架构的 H5 项目，路由采用多路由方案，缓存使用了 Pinia 和持久化插件，通过持久化插件在多个页面之间共享数据
+
+2. 问题描述： 由香港的测试人员反馈，大致描述为从 A 页面点击跳转到 B 页面后，会出现白屏，且只会在一台 iOS15.2 的设备上出现
+
+3. 报错截图：从 vConsole 显示的信息可以得知是 js 报错导致的白屏，具体是对 undefined 调用了 replace 方法。
+
+   <img src="/1.jpg" alt="白屏页面报错截图" style="zoom:15%;" />
+
+4. UA 信息：Mozilla/5.0 (iPhone; CPU iPhone OS 15_2 like Mac OS X)
+
+   AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148/Sail[zh-HK/2.9.5/com.bochk.bocpay/1.0.0]
+
+5. 挑战点：办公场地没有 iOS15.2 的设备，且开发人员和测试人员不在同一个城市，只有香港的测试机可以复现该问题，很难定位和调试。
+
+## 问题定位过程
+
+bug 定位的过程本身是一个从问题表现收集信息，基于已有的信息和经验，提出可能的原因假设，再通过各种各种方法(如日志、断点调试等)验证假设，再基于测试人员或者自身实践的反馈去验证问题是否得到解决的不断迭代过程，这里推荐一篇组内大佬对[bug 定位方法论总结的文章](https://blog.litong.life/frames-of-mind/)。
+
+<img src="/20.png" style="zoom:33%;" />
+
+(PS：图片来源组内大佬[文章](https://blog.litong.life/frames-of-mind/))
+
+接下来的内容我会尝试通过这个框架思维去描述这个问题的定位过程：
+
+### 迭代一：
+
+#### 表现
+
+A 页面跳转 B 页面，在 B 页面发生了白屏
+
+#### 分析
+
+B 页面在初始化的时候获取到的 state 为 null，而 state 是 A 页面点击一个联系人列表的点击事件回调函数存入的，那么有可能是这个组件的代码存在问题，伪代码如下：
+
+`A页面.vue`
+
+```vue
+<script setup lang="ts">
+  const handleTrigger = (info) => {
+    saveData(info)
+    router.push({ path: '页面B' });
+  };
+<script>
+
+ <template>
+    <person
+      v-for="item in list"
+      :key="item.id"
+      :info="item"
+      @trigger="handleTrigger"
+    >
+    </person>
+ </template>
+
+```
+
+`Person.vue`
+
+```vue
+<script setup lang="ts">
+    const clickInfo = () => {
+    emits('trigger', cloneDeep(props.info));
+  };
+</script>
+
+ <template>
+    <div class="flex py-16 px-24 person-info-card" @click="clickInfo">
+      ....
+    <div>
+ </template>
+```
+
+这个组件代码的设计其实是有点奇怪的，在子组件上绑定了 click 事件，在 click 函数内向外抛出 trigger 事件，父组件在 trigger 事件内存入数据并跳转，其实完全可以直接在子组件上绑定 click 事件，不需要再单独 emit。有可能是父子组件在传值的时候，没有往 trigger 事件的回调函数内传入正确的值，导致缓存中存入的值异常。
+
+#### 目标
+
+验证父子组件传值正常
+
+#### 行动
+
+采取的 console 的方法，在 handleTrigger 函数内将传入的 info 进行打印
+
+```js
+const handleTrigger = (info) => {
+  console.log(info);
+  saveData({ state: info });
+  router.push({ path: "页面B" });
+};
+```
+
+#### 反馈
+
+由于开发环境无法复现该问题，只能交由香港测试人员验证，验证结果是传入的 info 值是正常的。并且在第一轮验证后，测试人员还反馈其他业务模块也在同一台机器上出现了类似的白屏问题。这一轮得出的结论是组件业务代码是没有问题的。
+
+
+
+### 迭代二
+
+#### 表现
+
+同上 + 其他业务模块也有类似的白屏问题
+
+#### 分析
+
+在第一轮迭代的过程中，我们验证了存入缓存的原始数据是没有问题的，因此可以排除是该模块的业务组件代码逻辑问题。并且有一个重要反馈是其他模块也有类似的白屏问题，在分析白屏机器的 console 信息后，发现也是没有从缓存中拿到正确的值导致的。因此有可能是写数据的过程出了问题，即缓存模块没有存入正确的值
+
+这里先简单介绍下我们项目内的缓存方案，我们项目是 Hybrid 架构的多页面路由 H5 项目，在多个页面之间需要共享数据。使用的是 Pinia 进行全局数据管理，通过`pinia-plugin-persistedstate`持久化插件自动将 Pinia 数据同步进 localStorage 内。新页面会用 localStorage 内的数据对 Pinia 进行初始化，实现数据共享。
+
+在这种方案下，调用方不会直接操作 localStorage，所有的同步交由持久化插件自动完成，而持久化插件操作 localStorage 时数据来源则是 Pinia，因此需要验证 Pinia 内的值是正确的
+
+#### 目标
+
+验证跳转前，A 页面 Pinia 内有 state 字段，保证持久化插件写入的 Pinia 值是正确的
+
+#### 行动
+
+在跳转前，读取 Pinia 内的 state，如果有该字段才进行跳转。并且如果没有该字段会弹出系统提示，让测试人员知道发生了异常
+
+```js
+const handleTrigger = (info) => {
+  saveData({ state: info });
+  if (!getData().state.xxx) {
+    showMessage("缓存内没有state.xxx");
+    return;
+  }
+  router.push({ path: "页面B" });
+};
+```
+
+#### 反馈
+
+测试人员反馈在 B 页面发生白屏时，跳转前的 A 页面并没有弹出系统提示。并且在收集白屏机器的信息时又收集到了一个重要信息。在 B 页面通过 vConsole 查看 localStorage 内的值，发现在 A 页面初始化请求接口时存入的 list 是有的，唯一丢失的是跳转前存入的 state。
+
+
+
+### 迭代三
+
+#### 表现
+
+同上
+
+#### 分析
+
+在第二轮迭代的过程中，验证了 A 页面 Pinia 内的数据是正确的，并且还得知了 B 页面可以获取到 A 页面初始化时存入的数据，那么为什么都是相同的 saveData 函数，初始化时的数据被存入且能读取到，而跳转前的数据没有被存入呢？那么有可能的是在跳转前 Pinia 存储成功了，但 localStorage 还没有被完全存入就发生了跳转行为。而 iOS 下不在栈顶的 webview 内的代码有可能会被中断执行，导致了 localStorage 内没有 state
+
+#### 目标
+
+验证跳转前 localStorage 被完全存入后才跳转
+
+#### 行动
+
+在存入 Pinia 数据和路由跳转的代码之间，尝试读取 localStorage，看里面有没有 state
+
+```js
+const handleTrigger = (info) => {
+  saveData({ state: info });
+  console.log(JSON.parse(localStorage.getItem("data")));
+  router.push({ path: "页面B" });
+};
+```
+
+#### 反馈
+
+在开发环境写完测试代码后测试后发现 console 打印出来的 localStorage 值是异常的，即获取到的 localStorage 内没有刚刚存入的 state 字段。但是通过 safari 的 devTools 内查看最后是有 state 字段的。即在更改 Pinia 缓存后，同步获取 localStorage 内的值是未更新前的，但最后 localStorage 内是会被更新的，因此可以得出初步猜测是`pinia-plugin-persistedstate`持久化插件的数据写入并不是同步的过程
+
+<img src="/8.png" style="zoom: 33%;" />
+
+### 迭代四
+
+#### 表现
+
+在更改缓存后立即获取 localStorage 是未更新前的值，但最后通过 devtools 得知 localStorage 还是会被更新
+
+#### 分析
+
+在翻阅了 pinia-plugin-persistedstate 和 Pinia 源码后，我弄清楚了为什么在更改 Pinia 值后立即同步获取 localStorage 无法获取到最新数据的原因。持久化插件并不是实时同步的，它订阅了 store 的$subscribe函数。在Pinia数据发生改变时会调用$patch,在$patch 内部会在 nextTick 里将 isListening 改为 true，并调用`triggerSubscriptions`函数，这个函数会发布通知给所有的订阅者数据更新，持久化插件 收到通知后将最新的数据写入 localStorage 内。而这种不是同步的机制，有可能导致在跳转到下一个页面之后，还没有同步完成，这时去获取初始值，可能获取到的值为空。
+
+<img src="/10.png" style="zoom: 33%;" />
+
+<img src="/11.png" style="zoom: 33%;" />
+
+<img src="/12.png" style="zoom: 33%;" />
+
+#### 目标
+
+在更改 Pinia 后，能同步从 localStorage 获取到最新值
+
+#### 行动
+
+尝试手动同步不依赖于持久化插件的自动同步，直接在设置 Pinia 缓存的 setPageCache 方法内调用持久化插件暴露的$persist 方法，直接进行手动同步，以确保在 Pinia 数据更新后，能立即写入最新数据到本地缓存中，伪代码如下。
+
+```js
+setPageCache: (
+  type: keyof CacheDataType,
+  data: Recordable<any>,
+  /**
+   * 是否需要立即同步Pinia数据到后台
+   * 默认为true，即将数据存入Pinia后，立即更新LocalStorage的值
+   * @default true
+   */
+   persist = true,
+) => {
+  pageCache.setCacheData(name, type, data);
+  if (persist) {
+  	pageCache.$persist();
+  }
+},
+```
+
+这一轮我们要验证的结论就是手动调用$persist 后，在路由跳转前，console 能够正确打印出 localStorage 更新后的值，如果能够正常打印，看下白屏问题是否得到了解决
+
+```js
+const handleTrigger = (info) => {
+  saveData({ state: info });
+  console.log(JSON.parse(localStorage.getItem("data")));
+  router.push({ path: "页面B" });
+};
+```
+
+#### 反馈
+
+在开发环境测试后，发现通过手动调用$persist 函数后，在路由跳转前能够直接获取到更新后的 localStorage 值了，但在香港测试人员验证后，反馈依然还是存在白屏问题，并且在 B 页面打印出的 localStorage 内没有存入的 state
+
+### 迭代五
+
+#### 表现
+
+加入$persist 后，仍然出现白屏问题
+
+#### 分析
+
+在缓存模块内手动调用$persist函数后依然存在白屏问题，说明在B页面读取的localStorage值是不对的。需要进一步排除写数据这一步出现问题的可能性。因为在加入$persist 后，可能会导致一次 Pinia 数据更改，调用两次 localStorage 的 setItem，一次是$persist 手动同步，一次是自动同步，两次同步如果写入的数据不一致，那么会导致 B 页面读取到的数据不符合预期。
+
+#### 目标
+
+验证手动和自动同步写入数据是否存在冲突
+
+#### 行动
+
+改写 localStorage.setItem 的方法，对 setItem 进行拦截并且 console 传入的 key 和 value，对比两次写入的数据有无异同
+
+```js
+// 保存原始的 setItem 方法
+const originalSetItem = localStorage.setItem;
+// 重写 setItem 方法
+localStorage.setItem = function (key: string, value: string) {
+  // 调用原始方法
+  originalSetItem.apply(this, [key, value]);
+  // 输出当前写入的 key 和 value
+  console.log(`Setting localStorage: ${key} = ${value}`);
+};
+```
+
+#### 反馈
+
+在开发环境和生产环境测试后，从 vConsole 得到的反馈是一次 Pinia 更改，会调用两次 setItem。手动同步和自动同步写入的数据是一致的，但自动同步的调用时机在手动同步之后。
+
+### 迭代六
+
+#### 表现
+
+同上
+
+#### 分析
+
+问题的排查其实在这一轮迭代之后就无从下手了，因为从前几轮迭代的反馈来看，在 A 页跳转前已经往 localStorage 存入了正确的缓存值，但是 B 页面获取到的 localStorage 没有 state 字段。从上一轮收集的信息可知，持久化插件的数据写入是一个异步的过程，我们在自动同步之前就已经跳转了页面。抱着大胆尝试的心态，想着可以试一下在等持久化插件写入完成之后再跳转
+
+#### 目标
+
+验证延时一定时间后，能否解决白屏问题
+
+#### 行动
+
+1. 使用 nextTick，在 vue 的下一次事件循环时再跳转到 B 页面
+
+2. 如果 nextTick 不行的话，尝试使用 setTimeout，并且尝试不同的延时，如 100ms，200ms，300ms
+
+   ```js
+   const handleTrigger = (info) => {
+     saveData({ state: info });
+     setTimeout(() => {
+       router.push({ path: "页面B" });
+     }, 500);
+   };
+   ```
+
+#### 反馈
+
+nextTick 无法解决白屏问题，但设置 setTimeout 后，白屏问题消失，并且定时器的延时需要在 500ms 以上。虽然不知道为什么定时器可以解决这个问题，但抱着先把 Bug 处理掉的心态，我们在所有反馈出现过白屏的地方，都添加了 500ms 的延迟跳转。
+
+### 迭代七
+
+#### 表现
+
+定时器 500ms 可以解决白屏问题，但仍然有页面概率出现白屏问题
+
+#### 分析
+
+定时器看似是解决了这个问题，但我心里是知道这种解决方式是不靠谱的，只是掩藏住了 Bug。不清楚问题发生的根本原因，就无法保证这个问题是否被彻底修复。在前几轮的迭代过程，我们还发现在 B 页面通过 vConsole 查看 localStorage 没有 state，但返回到 A 页面后，在 A 页面通过 vConsole 查看 localStorage 是有 state 的，难道 iOS 下的 webview 会存在多个 localStorage 吗？而目前通过 vConsole 我们只能知道当前页面的调用情况，无法得知整个业务流程数据的读取和写入情况
+
+#### 目标
+
+记录整个业务流程数据的读取和写入情况，验证 setItem 和 getItem 的数据是否正确
+
+#### 行动
+
+我们在前几轮已经拦截了 localStorage 的方法，但没有保存下来。只需要借助 app 提供的本地日志能力，将每次读取和写入数据的操作保存到本地，并且记录写入的数据，时间，页面地址等信息，将日志导出来后就能对整个流程进行分析
+
+#### 反馈
+
+1. A 页面最后一次调用 localStorage.setItem，传入的数据符合预期
+
+   <img src="/13.png" style="zoom:33%;" />
+
+2. B 页面第一次调用 localStorage.getItem，读取到的数据不符合预期
+
+   <img src="/14.png" style="zoom:33%;" />
+
+### 迭代八
+
+#### 表现
+
+同上反馈
+
+#### 分析
+
+在前几轮的迭代过程中，通过改写 setItem 的方式，我们可以得知写入的数据是没有问题的，那么问题有没有可能发生在读取数据的环节呢？
+
+从直觉判断，读取的数据应该是最后一次写入的数据，但如果读写本身在某些情况下是不一致的，即读取到的数据不是最后一次写入的数据，那么就能够解释为什么 B 页面读取到的数据只包含了 A 页面初始化时存入的数据。如果能够知道 B 页面读取到的是 A 页面哪一次写入的数据，就能够找出问题所在，假设页面 A 分别写入了 w1,w2,w3 三次数据
+
+1. 如果页面 B 读取到的数据是 w2,说明 localStorage 更新有异常，w3 数据还未被写入到 localStorage 内
+2. 如果页面读取到的数据是这三次以外的数据，说明 A 页面还有其他地方调用了 setItem
+
+#### 目标
+
+建立读写的映射关系，能够知道 A 页面一共分别写入了哪些数据，B 页面的是哪一次写入的数据
+
+#### 行动
+
+在每次调用 setItem 时生成唯一的 traceid，将 traceid 一并写入到 localStorage 并记录在 app 日志内。在调用 getItem 时对比读取到的 traceid，这样就能准确地得知读取到的是哪一次写入的数据
+
+#### 反馈
+
+从日志可以看出 A 页面一共调用了四次 setItem：store_1723535995666_9，store_1723535995667_10，CONTACT_1723535996658_11，CONTACT_1723535996663_12。只有 11 和 12 是有 state 的，即在点击事件内产生的 setItem 才会有相关数据，而页面初始化过程产生的 9 和 10 两次写入是没有 state 字段的。在 B 页面初始化时读取到的是 id 为 store_1723535995667_10 的数据。即 B 页面读取的并不是 A 页面最后一次写入的数据，验证了我们的猜想
+
+<img src="/15.png" style="zoom:33%;" />
+
+<img src="/16.png" style="zoom:33%;" />
+
+### 迭代九
+
+#### 表现
+
+同上反馈
+
+#### 分析
+
+localStorage 是同步的 API，不应该出现数据同步存在延迟的情况。但日志数据表明确认存在延迟，那么延迟到底是多少？
+
+#### 目标
+
+测量同步数据的延迟
+
+#### 行动
+
+监听 localStorage 的 change 事件，在数据发生改变时，记录传入的数据和时间，存储在 app 日志中。并且加入对 localStorage 的轮询，间隔 50ms，最多轮询 40 次，不断地取 localStorage 内的值，看是否能获取到最新同步后的值
+
+#### 反馈
+
+在进入 B 页面后，change 事件没有被触发，轮询获取到的也不是 A 页面最后存入的值，日志如下
+
+<img src="/17.png" style="zoom:33%;" />
+
+### 迭代十
+
+#### 表现
+
+同上反馈
+
+#### 分析
+
+两个 webView 之间 localStorage 数据不一致的现象可以归因于以下原因：
+
+1. 共享的 localStorage：B 页面能够读取 A 页面写入的数据，这表明 localStorage 确实在 webView 之间是共享的，排除了独立存储的可能性。
+
+2. 异步持久化机制：localStorage 设计用于持久化存储，即使在应用进程终止后数据仍然保留。虽然从 JavaScript 角度看 localStorage 操作是同步的，但底层系统 I/O 操作可能是异步的。这可能导致暂时的数据不一致：
+
+   - 当数据被写入时，它会立即更新在当前 webView 的内存中
+
+   - 系统随后启动异步过程将这些数据持久化到文件系统
+
+   - 在这个间隔期间，当前 webView 可以从其内存中访问最新数据
+
+   - 然而，新创建的 webView 只能读取已成功持久化到文件系统的数据
+
+这种异步持久化机制可能导致 localStorage 内容在不同 webview 之间出现暂时的不一致状态。一旦文件系统同步完成，这种不一致就会消除。
+
+#### 目标
+
+验证页面 B 初始化完成后，再回到 A 页面，页面 A 读取到的是否为最后一次写入的数据
+
+#### 行动
+
+在 B 页面发生白屏后点击返回，让 A 页面进入栈顶后，查看日志中 getItem 的数据，看获取到的数据是否包含 state
+
+#### 反馈
+
+返回 A 页面后，读取到的数据 id 为 12，即 A 页面最后一次写入的数据，从日志结果可以得出结论，当 A 页面退出栈顶后，localStorage 的同步会被中止，只有当 A 页面重新进入栈顶后，才会继续同步 localStorage。
+
+<img src="/18.png" style="zoom:33%;" />
+
+### 最终原因
+
+概括来说就是在部分 iOS 系统上（兼容性问题），js 在调用 localStorage.setItem 后会将同步数据写入当前的 webview 缓存中，因此在当前 webview 获取到的都是最新写入数据。然后在合适时机（具体时机和系统当前的 io 调度有关）异步同步到 file system 中做持久化存储，并且当前同步会随着当前 webview 退出栈顶而中止。如果在同步前完成前就打开新的 webview，只能读取到上一个 webview 完成了持久化存储到 fs 中的数据，因此读取到了旧的数据。
+
+<img src="/19.png" style="zoom:33%;" />​
+(PS：图片来源组内大佬[文章](https://blog.litong.life/frames-of-mind/))
+
+而这个同步机制到实际项目中就会造成，在 A 页面存入数据后读取到的是包含 state 的最新数据，但新打开的 B 页面读取到了不包含 state 的旧数据，后续初始化数据时，就发生了 js 报错，引发白屏问题。而定时器 500ms 延迟能解决问题的原因正是因为，延时后转账首页在跳转前将最新的数据同步到了 fs 中，后续页面就能读取到最新的数据，页面便能正常加载
+
+该问题的本质原因其实是 iOS 特定版本系统 IO 的问题，无法在 h5 层面进行解决，因此只能更换持久化存储的方案，将 localStorage 替换为 app 提供的 app storage。
+
+### 总结
+
+回顾整个问题排查过程，我们可以清晰地看到一个系统化、迭代式的方法论在实践中的应用。每一轮迭代都遵循了"表现-分析-目标-行动-反馈"的结构化步骤，形成了一个不断深入、逐步接近问题本质的螺旋上升过程。初始阶段，我们从最表面的白屏现象出发，通过分析已知信息，提出初步假设。随后，我们设定具体的验证目标，采取相应的行动，如添加日志、修改代码等。每一轮行动后，我们都会仔细分析反馈结果，这些反馈不仅验证或否定了我们的假设，还为下一轮迭代提供了新的线索和方向。从最初怀疑业务组件代码，到关注缓存机制，再到深入探究 iOS 系统的特定行为，每一步都建立在前一步的基础之上，逐渐揭示了问题的更深层次原因。这种方法不仅确保了排查过程的逻辑性和全面性，也展示了在面对复杂技术问题时，如何通过系统化思考和持续迭代来逐步接近真相。
+
+当然在这次问题的排查过程中，也暴露出了自己的很多不足，排查过程中是有很多改进点的，
+
+1. 排查方向
+
+   这次的 Bug 定位过程很久，由于之前没有太多移动端经验，在处理兼容性问题上经验不足，在前期走了很多弯路，将太多精力放在了业务代码的排查上，但其实在前期就得知了只有在香港测试同事设备上会出现，在未来遇到类似问题时，应该更快地考虑到设备或系统版本的特殊性。
+
+2. 排查方式
+
+   在排查这种在开发环境无法复现的问题时，以后也可以使用日志追踪的方式，将用户的整个链路行为以日志的方式记录下来，通过日志一步步分析，找到问题点。并且通过日志来排查是有数据支撑的，不是凭空的猜测，这也是我这次白屏问题排查中最受益的点。对于跨页面的问题，可以考虑实现一个跨页面的状态追踪机制，以便更好地理解数据流动。
+
+3. 团队协作
+
+   前期这个问题的排查是我自己一个人处理，走了很多弯路，在最后小组其他成员加入进来后，提供了很多新的排查问题思路。以后遇到这种疑难杂症还是要充分发挥团队的力量。并且这个问题的排查也充分展示了跨地域团队协作的挑战。可以考虑改进远程调试和信息共享的方法，例如使用更好的远程调试工具或建立更高效的信息传递渠道。
