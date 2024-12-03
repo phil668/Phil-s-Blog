@@ -1,20 +1,35 @@
 ---
-import { type CollectionEntry, getCollection } from 'astro:content';
-import BlogPost from '../../layouts/BlogPost.astro';
+import { type CollectionEntry, getCollection } from "astro:content";
+import BlogPost from "../../layouts/BlogPost.astro";
 
 export async function getStaticPaths() {
-	const posts = await getCollection('blog');
-	return posts.map((post) => ({
-		params: { slug: post.slug },
-		props: post,
-	}));
+  const posts = await getCollection("blog");
+  return posts.map((post) => ({
+    params: { slug: post.slug },
+    props: post,
+  }));
 }
-type Props = CollectionEntry<'blog'>;
+type Props = CollectionEntry<"blog">;
 
 const post = Astro.props;
-const { Content } = await post.render();
+const { Content, headings } = await post.render();
+console.log("headings", headings);
 ---
 
 <BlogPost {...post.data}>
-	<Content />
+  <Content />
+
+  <nav slot="left" class="hidden lg:block sticky top-20 h-fit min-w-[240px]">
+    <ul class="space-y-2 text-sm">
+      {
+        headings.map(({ depth, slug, text }) => (
+          <li class={`${depth === 2 ? "" : "ml-4"}`}>
+            <a href={`#${slug}`} class="text-gray-600 hover:text-gray-900">
+              {text}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
 </BlogPost>
