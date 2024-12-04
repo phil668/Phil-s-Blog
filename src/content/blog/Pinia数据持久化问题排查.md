@@ -13,7 +13,7 @@ heroImage: "/pinia.png"
 
 并且该问题只在一个模块能够 100%复现，其他模块无法复现。问题大致表现可看下方录屏：
 
-<video src="https://public.litong.life/yue/RPReplay_Final1732873086.MP4" style="height:500px;width:auto;margin:0 auto" controls></video>
+<video src="https://public.litong.life/yue/RPReplay_Final1732873086.MP4" style="height:500px;width:auto;margin:0 auto;max-width:230px" controls></video>
 
 这里需要先简单介绍下该 app 的路由和缓存的方案：
 
@@ -37,7 +37,7 @@ heroImage: "/pinia.png"
 
 PS: 为了避免歧义，这里先说明下两个函数命名和作用，后续分析过程中也会大量用到这两个函数：
 
-- **$persit**：将 pinia 数据写入到本地
+- **$persist**：将 pinia 数据写入到本地
 
 - **$hydrate**：将本地数据读取到 pinia 内
 
@@ -59,7 +59,7 @@ const hydrate = () => {
 jssdk.on("pageDidAppear", hydrate);
 ```
 
-但是其他模块需要依赖 App.vue的$hydrate逻辑，因此不能简单地将其删除。而且其他模块并未出现该问题，说明$hydrate并不是 问题的根因
+但是其他模块需要依赖 App.vue 的$hydrate逻辑，因此不能简单地将其删除。而且其他模块并未出现该问题，说明$hydrate 并不是 问题的根因
 
 #### 方案二
 

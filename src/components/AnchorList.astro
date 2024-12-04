@@ -1,0 +1,102 @@
+---
+import type { MarkdownHeading } from "astro";
+
+type Props = {
+  headings: MarkdownHeading[];
+};
+const { headings } = Astro.props;
+
+console.log(headings);
+---
+
+<nav
+  slot="right"
+  class="hidden lg:block sticky top-20 h-fit min-w-[240px] pr-4 max-h-[calc(100vh-10em)] overflow-y-auto"
+>
+  <ul class="space-y-2 text-sm">
+    {
+      headings.map(({ depth, slug, text }) => (
+        <li
+          class={`list-none ${
+            depth === 1
+              ? ""
+              : depth === 2
+                ? "ml-0"
+                : depth === 3
+                  ? "ml-4"
+                  : depth === 4
+                    ? "ml-8"
+                    : depth === 5
+                      ? "ml-12"
+                      : "ml-16"
+          }`}
+        >
+          <a
+            href={`#${slug}`}
+            class="text-gray-600 hover:text-blue-500 no-underline anchor-item"
+            data-heading={slug}
+          >
+            {text}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</nav>
+
+<script>
+  function updateActiveHeading() {
+    const headings = document.querySelectorAll(
+      "h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]"
+    );
+    const anchorLinks = document.querySelectorAll(".anchor-item");
+
+    let currentHeadingId = "";
+
+    // Find the current heading based on scroll position
+    for (const heading of headings) {
+      const rect = heading.getBoundingClientRect();
+      if (rect.top <= 100) {
+        // 100px offset from top
+        currentHeadingId = heading.id;
+      } else {
+        break;
+      }
+    }
+
+    // Update active state for all anchor links
+    anchorLinks.forEach((link) => {
+      const headingId = link.getAttribute("data-heading");
+      if (headingId === currentHeadingId) {
+        link.classList.add("text-blue-600", "font-medium");
+        link.classList.remove("text-gray-600");
+      } else {
+        link.classList.remove("text-blue-600", "font-medium");
+        link.classList.add("text-gray-600");
+      }
+    });
+  }
+
+  // Add scroll event listener
+  window.addEventListener("scroll", updateActiveHeading, { passive: true });
+
+  // Initial check
+  updateActiveHeading();
+
+  function scrollToHeading(event: Event, slug: string) {
+    console.log(event, slug);
+    event.preventDefault();
+    const element = document.getElementById(slug);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  // 为所有锚点添加点击事件监听器
+  document.querySelectorAll(".anchor-item").forEach((anchor) => {
+    anchor.addEventListener("click", (event) => {
+      const slug = anchor.getAttribute("data-heading");
+      slug && scrollToHeading(event, slug);
+    });
+  });
+</script>
