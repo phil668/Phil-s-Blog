@@ -1,0 +1,75 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "pnpm"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Archive build files
+        run: tar -czf blog.tar.gz -C dist .
+
+      - name: Upload build files to server
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: blog.tar.gz
+          target: /tmp/
+
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            # 确保目标目录存在
+            mkdir -p /usr/local/lighthouse/softwares/nginx/html/blog
+
+            # 备份当前版本
+            if [ -d "/usr/local/lighthouse/softwares/nginx/html/blog" ]; then
+              cp -r /usr/local/lighthouse/softwares/nginx/html/blog /usr/local/lighthouse/softwares/nginx/html/blog_backup_$(date +%Y%m%d_%H%M%S)
+            fi
+
+            # 清理并解压新版本
+            cd /usr/local/lighthouse/softwares/nginx/html/blog
+            rm -rf *
+            tar -xzf /tmp/blog.tar.gz
+
+            # 设置正确的权限
+            chown -R nginx:nginx /usr/local/lighthouse/softwares/nginx/html/blog
+            chmod -R 755 /usr/local/lighthouse/softwares/nginx/html/blog
+
+            # 清理临时文件
+            rm -f /tmp/blog.tar.gz
+
+            # 如果您使用的是 nginx，可以重新加载配置
+            systemctl reload nginx
