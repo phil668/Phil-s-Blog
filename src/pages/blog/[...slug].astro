@@ -14,7 +14,6 @@ type Props = CollectionEntry<"blog">;
 
 const post = Astro.props;
 const { Content, headings } = await post.render();
-console.log("headings", headings);
 ---
 
 <BlogPost {...post.data}>
