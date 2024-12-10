@@ -29,7 +29,7 @@ heroImage: "/pinia.png"
 
   - **persist**（写入）：通过 pinia-plugin-persistedstate 持久化插件调用 JSSDK 将 pinia 内的数据写入到 app 本地。
 
-  - **hydrate**（读取）：Pinia 在初始化时，调用 JSSDK 获取 app 本地的数据作为初始值。并且如果其他后，当前页面还会监听返回的行为，再次调用 hydrate，保证 Pinia 内数据和 app 本地数据一致。
+  - **hydrate**（读取）：Pinia 在初始化时，调用 JSSDK 获取 app 本地的数据作为初始值。并且从其他页面返回后，当前页面还会监听返回事件，再次调用 hydrate，保证 Pinia 内数据和 app 本地数据一致。
 
 详细的缓存方案若感兴趣可以戳这篇文章了解：[App 白屏 Bug 复盘](https://moondust.cn/blog/boc-pay-bug/)
 
@@ -43,11 +43,11 @@ heroImage: "/pinia.png"
 
 写入流程导致失败可能有两种情况：未调用写入和写入失败。
 
-##### 写入失败 ✅
+##### 写入失败
 
 上文提到了持久化缓存最终调用的是 native 提供的 JSSDK ，如果 native 侧存储失败，就会导致在 B 页面获取不到最新的数据。但是通过 JSSDK 回调函数返回的结果来看，存储未发生异常。
 
-##### 未调用写入 ❌
+##### 未调用写入
 
 需要验证的是在两次跳转到 B 页面前是否有调用持久化写入函数`persist` ，函数底层调用的是项目内自定义的`NativeStorage`类，验证方法是在该类的 setItem 方法内加入日志信息，查看 vConsole 输出的日志。
 
@@ -75,7 +75,7 @@ export class NativeStorage {
 
 那么为什么 B 页面却获取不到第二次存入的数据呢？
 
-这个地方花了很长时间来排查，后面我们猜测第二次的`setItem日志`，实际上并不是第二次跳转 B 页面时打印的，而是从 B 页面返回到 A 页面后，执行`hydrat`后打印的。因为`hydrate`会将持久化数据读取到 pinia 内，引起 pinia 数据改变， pinia 数据改变后会调用`persist`，最终打印`setItem`。
+这个地方花了很长时间来排查，后面我们猜测第二次的`setItem`日志，实际上并不是第二次跳转 B 页面时打印的，而是从 B 页面返回到 A 页面后，执行`hydrate`后打印的。因为`hydrate`会将持久化数据读取到 pinia 内，引起 pinia 数据改变， pinia 数据改变后会调用`persist`，最终打印`setItem`。
 
 ![20241210142317](https://public.litong.life/yue/20241210142317.png)
 
@@ -100,11 +100,11 @@ export class NativeStorage {
 
 #### 读取
 
-##### 缓存丢失 ✅
+##### 缓存丢失
 
-如果 A 页面调用了 JSSDK 持久化本地数据，但 native 实际写入的数据有缺失也有可能导致 B 页面无法获取到，因此也需要对这种情况做排除。排除的方式是逐一对比传入 JKSSDK 的数据和最终存储进本地的数据，通过开发人员的对比，发现不存在缓存丢失的情况。因此可以排除缓存丢失的可能性。
+如果 A 页面调用了 JSSDK 持久化本地数据，但 native 实际写入的数据有缺失也有可能导致 B 页面无法获取到数据，因此也需要对这种情况做排除。排除的方式是逐一对比传入 JSSDK 的数据和最终存储进本地的数据，通过对比，发现不存在缓存丢失的情况，因此可以排除缓存丢失的可能性。
 
-##### 异步写入未完成 ✅
+##### 异步写入未完成
 
 如果 B 页面在初始化时，JSSDK 的数据 IO 操作还未完成，也有可能导致 B 页面获取到的不是完整数据。为了排除异步写入的可能性，我们在 A 页面延时了 5 秒进行跳转，5 秒远远超过了数据 IO 操作时间。但是在延时 5 秒之后，问题仍然可以复现，因此可以排除异步写入的可能性。
 
@@ -132,7 +132,7 @@ jssdk.on("pageDidAppear", hydrate);
 
 #### 方案二
 
-相关开发同学猜测是传入给 pinia 的数据存在引用关系，但未找到具体哪里的数据存在引用。随后尝试对传递给 pinia 的数据调用 `JSON.stringify` 后在控制台打印，Bug 不再复现。值得注意的是这里**并未更改数据本身**，只是 `stringify` 后调用`console.log`，相关代码如下：
+猜测是传入给 pinia 的数据存在引用关系，但未找到具体哪里的数据存在引用。随后尝试对传递给 pinia 的数据调用 `JSON.stringify` 后在控制台打印，Bug 不再复现。值得注意的是这里**并未更改数据本身**，只是 `stringify` 后调用`console.log`，相关代码如下：
 
 ```js
 // store.ts
@@ -150,7 +150,7 @@ actions: {
 
 #### 方案三
 
-后续测试同学反馈上一个版本没有该问题，因此通过二分法对 Git 提交记录进行回滚，最终定位到了有问题的提交。在第一个页面 A 初始化的时候，在 Pinia 内存入了 vue 的 computed 数据，而 computed 函数返回的数据为 ComputedRef 对象，会存在引用关系。并且发现 computed 持久化到本地后的数据为布尔值。回滚这一次提交后，问题不再复现，相关大致如下：
+后续测试同学反馈上一个版本没有该问题，因此通过二分法对 Git 提交记录进行回滚，最终定位到了有问题的提交。在第一个页面 A 初始化的时候，在 Pinia 内存入了 vue 的 computed 数据，而 computed 函数返回的数据为 ComputedRef 对象，会存在引用关系。并且发现 computed 持久化到本地后的数据为布尔值。回滚这一次提交后，问题不再复现，相关代码如下：
 
 ```typescript
 // PageA.vue
@@ -172,19 +172,24 @@ setCacheData({ isP2P, isP2M });
 
 虽然对版本进行了回滚解决了问题，但前一晚的排查仍然留下了很多疑惑：
 
-#### 未解之谜
-
 1. 为什么移除监听页面返回执行`hydrate` 相关逻辑后，问题可以解决？
-2. 为什么传入的数据内包含 computed，就会导致持久化缓存失效？
+2. 为什么传入的数据内包含 computed 会导致持久化缓存失效？
 3. 为什么对含有 computed 的数据调用 JSON.stringify，问题可以解决？
 
 而这些问题没有解决，后续项目仍然有可能出现缓存相关问题，因此第二天和组内大佬一起开始尝试寻找问题的根本原因。
 
-通过对应急方案分析，不难看出解决思路就是让**页面返回不再执行 hydrate**或者**传入数据内不要包含 computed**。只要选择其中一个都可以修复问题，因此猜测是**hydrate**和**数据内有引用**共同导致了问题的发生。即**hydrate**和**数据内有引用**同时存在为问题复现的充分必要条件。而由于通过方案三可以修复该问题，那么便可以通过打断点的方式，对比正常和异常流程的代码执行过程。最终找出了问题的根本原因：
+通过对应急方案分析，不难看出解决思路就是让**页面返回不再执行 hydrate**或者**传入数据内不要包含 computed**。只要选择其中一个都可以修复问题，因此猜测是**hydrate**和**数据内有引用**共同导致了问题的发生。即**hydrate**和**数据内有引用**同时存在为问题复现的充分必要条件。而由于通过方案三可以修复该问题，那么便可以通过打断点的方式，对比正常和异常流程的代码执行过程。
 
-> A 页面在初始化时往 pinia 内存入了包含 computed 的数据。当 A 页面监听到返回事件执行**hydrate**时，会调用 pinia 内的 patch 函数，patch 内部做了两件事：1️⃣**合并**新（app 本地持久化数据）/旧（pinia 内原有数据）两份数据；2️⃣ 在合并前后更改全局**isListening**标识位的值。
->
-> 当旧数据内包含 computed 时，合并的过程中发生**js 报错**，导致 patch 函数中断，isListening 无法恢复为默认值 true。而[持久化插件](https://prazdevs.github.io/pinia-plugin-persistedstate/)通过 watch 监听 pinia 内数据变化，只有当 isListening 为 true 时，才会执行持久化`persist`。由于 patch 函数被异常中断，isListening 未恢复为 true，最终导致`persist` 函数**未被调用**。在业务上就表现为返回 A 页面后最新修改的金额未被持久化到本地，B 页面获取到的仍然是第一次输入的金额。
+![20241210162803](https://public.litong.life/yue/20241210162803.png)
+
+#### 问题的根本原因
+
+A 页面在初始化时往 pinia 内存入了包含 computed 的数据。当 A 页面监听到返回事件执行**hydrate**时，会调用 pinia 内的 patch 函数，patch 内部做了两件事：
+
+- **合并**新（app 本地持久化数据）/旧（pinia 内原有数据）两份数据，更新 pinia 内数据
+- 在合并前后更改全局**isListening**标识位的值。
+
+当旧数据内包含 computed 时，合并的过程中发生**js 报错**，导致 patch 函数中断，isListening 无法恢复为默认值 true。而[持久化插件](https://prazdevs.github.io/pinia-plugin-persistedstate/)通过 watch 监听 pinia 内数据变化，只有当 isListening 为 true 时，才会执行持久化`persist`。由于 patch 函数被异常中断，isListening 未恢复为 true，最终导致`persist` 函数**未被调用**。在业务上就表现为返回 A 页面后最新修改的金额未被持久化到本地，B 页面获取到的仍然是第一次输入的金额。
 
 下面会从源码入手，对问题进行拆解，详细解答：
 
@@ -202,7 +207,7 @@ pinia 持久化缓存的工作流程分为两个方面：
 
 从上面两幅图可得知，`hydrate`和`persist`并不是两个完全独立的工作流程，它们都依赖了 pinia 模块内的全局变量`isListening`，在 patch 函数调用前后会修改`isListening`的值。持久化插件监听到 pinia 数据变化后会判断 `isListening` 的值，**只有当 `isListening` 为 true 时才会调用`persist` 持久化数据**。
 
-正常流程`hydrate`执行完后，`isListening` 的值应该被重置为 true。后续持久化插件监听到 pinia 数据变化后，判读 `isListening` 是否为 true，写入数据到本地。但是当 pinia 内的数据有 `ComputedRef` 时执行 `hydrate`，执行流程就会发生异常，下面详细看下具体流程和对应源码：
+正常流程`hydrate`执行完后，`isListening` 的值应该被重置为 true。后续持久化插件监听到 pinia 数据变化后，判断 `isListening` 是否为 true，写入数据到本地。但是当 pinia 内的数据有 `ComputedRef` 时执行 `hydrate`，执行流程就会发生异常，下面详细看下具体流程和对应源码：
 
 [vuejs/pinia/packages/pinia/src/store.ts#L319](https://github.com/vuejs/pinia/blob/v2/packages/pinia/src/store.ts#L319)
 
@@ -287,7 +292,7 @@ pinia 内的数据是一个对象，因此我们需要先简单了解一下`JSON
 
    ![pina-4](https://public.litong.life/yue/pina-4.png)
 
-因此存入本地持久化的数据为 computed 对应的.value 值，这解释了**为什么在 A 页面存入的为\*\***`ComputedRef`\***\*，并不是预期中的布尔值，后续 B 页面也能通过持久化数据拿到正确的值**。
+因此存入本地持久化的数据为 computed 对应的.value 值，这解释了 **为什么在 A 页面存入的为`ComputedRef`，并不是预期中的布尔值，后续 B 页面也能通过持久化数据拿到正确的值**。
 
 #### 为什么对含有 computed 的数据调用 JSON.stringify，问题可以解决？
 
@@ -340,7 +345,7 @@ actions: {
 
 回过头来看这个问题不好定位的原因有两个：
 
-1. 报错发生在底层三方库，而非业务代码。第三方库很多情况下对于开发人员来说是个黑盒，只能通过浏览器的断点单步调试。后续会再写一篇文章来总结下如何使用浏览器 debug 高效第三方库源码。
+1. 报错发生在底层三方库，而非业务代码。第三方库很多情况下对于开发者来说是个黑盒，只能通过浏览器的断点单步调试。后续会再写一篇文章来总结下如何使用浏览器 debug 高效第三方库源码。
 2. 由于没有开启持久化插件的 debug 模式，控制台没有任何报错信息，在前期的排查过程中走错了方向。
 
 #### 实践建议
