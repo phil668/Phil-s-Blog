@@ -67,7 +67,7 @@ export class NativeStorage {
 
 - 符合预期的日志为：有两次`setItem`打印。打印的时机如图：
 
-![页面执行流程.drawio (2)](https://public.litong.life/yue/页面执行流程.drawio (2).png)
+![20241210142300](https://public.litong.life/yue/20241210142300.png)
 
 - 不符合预期的日志为：`setItem`打印少于两次。
 
@@ -77,7 +77,7 @@ export class NativeStorage {
 
 这个地方花了很长时间来排查，后面我们猜测第二次的`setItem日志`，实际上并不是第二次跳转 B 页面时打印的，而是从 B 页面返回到 A 页面后，执行`hydrat`后打印的。因为`hydrate`会将持久化数据读取到 pinia 内，引起 pinia 数据改变， pinia 数据改变后会调用`persist`，最终打印`setItem`。
 
-![页面执行流程.drawio (3)](https://public.litong.life/yue/页面执行流程.drawio (3).png)
+![20241210142317](https://public.litong.life/yue/20241210142317.png)
 
 由于验证的方法是跳转 B 页面后，返回到 A 页面查看 日志，因此无法确认打印的具体时机。所以需要在日志内加上时间，通过时间来确认最后一次的`setItem`是什么时候输出的。
 
