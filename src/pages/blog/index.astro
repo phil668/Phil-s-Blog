@@ -7,108 +7,63 @@ import { getCollection } from "astro:content";
 import FormattedDate from "../../components/FormattedDate.astro";
 
 const posts = (await getCollection("blog")).sort(
-  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
 );
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
-    <style>
-      main {
-        width: 960px;
-      }
-      ul {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 2rem;
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-      }
-      ul li {
-        width: calc(50% - 1rem);
-      }
-      ul li * {
-        text-decoration: none;
-        transition: 0.2s ease;
-      }
-      ul li:first-child {
-        width: 100%;
-        margin-bottom: 1rem;
-        text-align: center;
-      }
-      ul li:first-child img {
-        width: 100%;
-      }
-      ul li:first-child .title {
-        font-size: 2.369rem;
-      }
-      ul li img {
-        margin-bottom: 0.5rem;
-        border-radius: 12px;
-      }
-      ul li a {
-        display: block;
-      }
-      .title {
-        margin: 0;
-        color: rgb(var(--black));
-        line-height: 1;
-      }
-      .date {
-        margin: 0;
-        color: rgb(var(--gray));
-      }
-      ul li a:hover h4,
-      ul li a:hover .date {
-        color: rgb(var(--accent));
-      }
-      ul a:hover img {
-        box-shadow: var(--box-shadow);
-      }
-      @media (max-width: 720px) {
-        ul {
-          gap: 0.5em;
-        }
-        ul li {
-          width: 100%;
-          text-align: center;
-        }
-        ul li:first-child {
-          margin-bottom: 0;
-        }
-        ul li:first-child .title {
-          font-size: 1.563em;
-        }
-      }
-    </style>
   </head>
-  <body>
+  <body class="flex flex-col min-h-screen">
     <Header />
-    <main>
-      <section>
-        <ul>
-          {
-            posts.map((post) => (
-              <li>
-                <a href={`/blog/${post.slug}/`}>
-                  <img
-                    src={post.data.heroImage}
-                    alt=""
-                    style="width: 360px;height: 280px;object-fit: cover;"
-                  />
-                  <h4 class="title">{post.data.title}</h4>
-                  <p class="date">
+    <main
+      class="flex-grow w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 md:py-16"
+    >
+      <div class="space-y-8 sm:space-y-12">
+        {
+          posts.map((post, index) => (
+            <article
+              class={`group cursor-pointer fade-in delay-${(index + 1) * 100}`}
+            >
+              <a href={`/blog/${post.slug}/`} class="block py-2 -mx-2 px-2">
+                <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-medium text-[#D97757] mb-2 uppercase tracking-wider">
+                  <span>
                     <FormattedDate date={post.data.pubDate} />
+                  </span>
+                  <span class="w-1 h-1 rounded-full bg-[#D97757]/40" />
+                  <span>阅读</span>
+                </div>
+                <h2 class="font-serif text-xl sm:text-2xl font-bold text-[#38352E] mb-2 sm:mb-3 group-hover:text-[#D97757] transition-colors duration-300 leading-tight">
+                  {post.data.title}
+                </h2>
+                {post.data.description && (
+                  <p class="text-sm sm:text-base text-[#6B665F] leading-relaxed mb-3 sm:mb-4 line-clamp-2">
+                    {post.data.description}
                   </p>
-                </a>
-              </li>
-            ))
-          }
-        </ul>
-      </section>
+                )}
+                <div class="flex items-center text-sm text-[#38352E] font-medium group-hover:translate-x-1 transition-transform duration-300">
+                  阅读全文
+                  <svg
+                    class="ml-1 w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </div>
+              </a>
+            </article>
+          ))
+        }
+      </div>
     </main>
     <Footer />
   </body>

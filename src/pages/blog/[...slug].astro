@@ -1,7 +1,6 @@
 ---
 import { type CollectionEntry, getCollection } from "astro:content";
 import BlogPost from "../../layouts/BlogPost.astro";
-import AnchorList from "../../components/AnchorList.astro";
 
 export async function getStaticPaths() {
   const posts = await getCollection("blog");
@@ -18,10 +17,4 @@ const { Content, headings } = await post.render();
 
 <BlogPost {...post.data}>
   <Content />
-
-  <AnchorList
-    class:list={["hidden lg:block"]}
-    slot="right"
-    headings={headings}
-  />
 </BlogPost>

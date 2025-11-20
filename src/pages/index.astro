@@ -1,23 +1,82 @@
 ---
-import BaseHead from '../components/BaseHead.astro';
-import Header from '../components/Header.astro';
-import Footer from '../components/Footer.astro';
-import { SITE_TITLE, SITE_DESCRIPTION } from '../consts';
+import BaseHead from "../components/BaseHead.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import { SITE_TITLE, SITE_DESCRIPTION } from "../consts";
+import { getCollection } from "astro:content";
+import FormattedDate from "../components/FormattedDate.astro";
+
+const posts = (await getCollection("blog")).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
 ---
 
 <!doctype html>
-<html lang="en">
-	<head>
-		<BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
-	</head>
-	<body>
-		<Header />
-		<main>
-			<h1>🧑‍🚀 Hello!</h1>
-			<p>
-				I'm Phil, a front-end developer based in Shenzhen. My main tech stack is front-end development, including Vue, React, and Electron.
-			</p>
-		</main>
-		<Footer />
-	</body>
+<html lang="zh-CN">
+  <head>
+    <BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
+  </head>
+  <body class="flex flex-col min-h-screen">
+    <Header />
+    <main
+      class="flex-grow w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 md:py-16"
+    >
+      <div class="mb-12 sm:mb-16 fade-in">
+        <h1
+          class="font-serif text-3xl sm:text-4xl md:text-5xl font-bold text-[#38352E] mb-4 sm:mb-6 tracking-tight leading-tight"
+        >
+          思考，设计，<br class="hidden sm:block" />以及介于两者之间的一切。
+        </h1>
+        <p
+          class="text-base sm:text-lg text-[#6B665F] font-sans max-w-xl leading-relaxed"
+        >
+          探索技术、设计极简主义与数字人文的交汇点。这是一个安静的角落，用于整理思绪。
+        </p>
+      </div>
+      <div class="space-y-8 sm:space-y-12">
+        {
+          posts.map((post, index) => (
+            <article
+              class={`group cursor-pointer fade-in delay-${(index + 1) * 100}`}
+            >
+              <a href={`/blog/${post.slug}/`} class="block py-2 -mx-2 px-2">
+                <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-medium text-[#D97757] mb-2 uppercase tracking-wider">
+                  <span>
+                    <FormattedDate date={post.data.pubDate} />
+                  </span>
+                  <span class="w-1 h-1 rounded-full bg-[#D97757]/40" />
+                  <span>阅读</span>
+                </div>
+                <h2 class="font-serif text-xl sm:text-2xl font-bold text-[#38352E] mb-2 sm:mb-3 group-hover:text-[#D97757] transition-colors duration-300 leading-tight">
+                  {post.data.title}
+                </h2>
+                {post.data.description && (
+                  <p class="text-sm sm:text-base text-[#6B665F] leading-relaxed mb-3 sm:mb-4 line-clamp-2">
+                    {post.data.description}
+                  </p>
+                )}
+                <div class="flex items-center text-sm text-[#38352E] font-medium group-hover:translate-x-1 transition-transform duration-300">
+                  阅读全文
+                  <svg
+                    class="ml-1 w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </div>
+              </a>
+            </article>
+          ))
+        }
+      </div>
+    </main>
+    <Footer />
+  </body>
 </html>

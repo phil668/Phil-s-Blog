@@ -5,8 +5,6 @@ pubDate: "2025-04-28"
 heroImage: "/caret.jpg"
 ---
 
-# iOS  Safari 中 caret-color 属性的兼容性问题
-
 ## 问题描述
 在开发中使用 CSS 的 `caret-color` 属性自定义输入框（input/textarea）或可编辑区域（contenteditable）的光标颜色时，发现 iOS 15 之前版本的 Safari 浏览器表现异常，光标颜色偶现无法按预期设置的情况。
 

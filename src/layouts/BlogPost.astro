@@ -10,37 +10,80 @@ type Props = CollectionEntry<"blog">["data"];
 const { title, description, pubDate, updatedDate, heroImage } = Astro.props;
 ---
 
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <BaseHead title={title} description={description} />
   </head>
 
-  <body>
+  <body class="flex flex-col min-h-screen">
     <Header />
 
-    <main class="w-[calc(100%-2em)] max-w-full m-0 lg:grid grid-cols-10">
-      <div class="col-span-2">
-        <slot name="left" />
-      </div>
-      <article class="col-span-6">
-        <div class="w-720px max-w-[calc(100%-2em)] mx-auto p-4 text-gray-dark">
-          <div class="mb-4 py-4 text-center leading-none">
-            <div class="mb-2 text-gray">
-              <FormattedDate date={pubDate} />
-              {
-                updatedDate && (
-                  <div class="italic">
-                    Last updated on <FormattedDate date={updatedDate} />
-                  </div>
-                )
-              }
-            </div>
-            <h1 class="mb-2">{title}</h1>
-            <hr />
+    <main
+      class="flex-grow w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 md:py-16"
+    >
+      <article class="fade-in">
+        <a
+          href="/blog"
+          class="group flex items-center text-sm text-[#6B665F] hover:text-[#D97757] mb-6 sm:mb-8 transition-colors inline-block py-2 -ml-2 pl-2 pr-2"
+        >
+          <svg
+            class="w-4 h-4 mr-1 group-hover:-translate-x-1 transition-transform"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"></path>
+          </svg>
+          返回列表
+        </a>
+
+        <header class="mb-6 sm:mb-10">
+          <div
+            class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm font-medium text-[#6B665F] mb-3 sm:mb-4"
+          >
+            <span><FormattedDate date={pubDate} /></span>
+            <span class="w-1 h-1 rounded-full bg-[#6B665F]/40"></span>
+            {
+              updatedDate && (
+                <>
+                  <span class="italic text-xs sm:text-sm">
+                    更新于 <FormattedDate date={updatedDate} />
+                  </span>
+                </>
+              )
+            }
           </div>
+          <h1
+            class="font-serif text-2xl sm:text-3xl md:text-4xl font-bold text-[#38352E] leading-tight"
+          >
+            {title}
+          </h1>
+        </header>
+
+        <div class="prose prose-sm sm:prose-base max-w-none text-[#38352E]">
           <slot />
         </div>
+
+        <div class="mt-12 sm:mt-16 pt-6 sm:pt-8 border-t border-[#E6E1DB]">
+          <h3 class="font-serif text-base sm:text-lg font-bold mb-3 sm:mb-4">
+            感谢阅读
+          </h3>
+          <p class="text-sm sm:text-base text-[#6B665F] mb-4 sm:mb-6">
+            如果你喜欢这篇文章，欢迎订阅我的 RSS 或在 GitHub 上关注我。
+          </p>
+          <a
+            href="/blog"
+            class="inline-block px-5 sm:px-6 py-2.5 sm:py-3 bg-white border border-[#E6E1DB] rounded-lg text-sm font-medium hover:border-[#D97757] hover:text-[#D97757] transition-all shadow-sm min-h-[44px] flex items-center justify-center"
+          >
+            阅读更多文章
+          </a>
+        </div>
       </article>
+
       <div class="col-span-2">
         <slot name="right" />
       </div>
